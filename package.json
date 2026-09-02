@@ -1,0 +1,15 @@
+{
+  "name": "agent-ws",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ping": "node ping.mjs",
+    "channel": "node channel.mjs"
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.0.30",
+    "discord.js": "^14.22.1",
+    "https-proxy-agent": "^9.1.0"
+  }
+}
