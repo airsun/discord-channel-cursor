@@ -1,6 +1,8 @@
+import { access } from "node:fs/promises";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { extractFiles, loadHarness } from "./harness.mjs";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { ProxyAgent, setGlobalDispatcher } from "undici";
 import WebSocket from "ws";
@@ -32,6 +34,8 @@ const MODEL = {
   ],
 };
 const CWD = process.env.AGENT_CWD || "/home/airsun/Works";
+const HARNESS_ROOT = process.env.HARNESS_ROOT || "";
+const HARNESS_PROFILE = process.env.HARNESS_PROFILE || "";
 const API_KEY = process.env.CURSOR_API_KEY;
 const TOKEN = process.env.DISCORD_BOT_TOKEN;
 const ALLOW = new Set(
@@ -62,6 +66,8 @@ if (CWD.startsWith("/Users/")) {
 const live = new Map();
 /** @type {Record<string, string>} */
 let sessions = {};
+/** @type {{ dirs: string[], mcpServers: Record<string, object>, kitIds: string[], hint: string }} */
+let harness = { dirs: [], mcpServers: {}, kitIds: [], hint: "" };
 
 async function loadSessions() {
   try {
@@ -107,7 +113,19 @@ async function openAgent(sessionRef) {
   if (existing) return existing;
 
   const prevId = sessions[sessionRef];
-  const opts = { apiKey: API_KEY, model: MODEL, local: { cwd: CWD } };
+  const opts = {
+    apiKey: API_KEY,
+    model: MODEL,
+    local: {
+      cwd: CWD,
+      ...(harness.dirs.length
+        ? { dirs: harness.dirs, settingSources: ["project"] }
+        : {}),
+    },
+    ...(Object.keys(harness.mcpServers).length
+      ? { mcpServers: harness.mcpServers }
+      : {}),
+  };
   const agent = prevId
     ? await Agent.resume(prevId, opts)
     : await Agent.create(opts);
@@ -128,7 +146,10 @@ async function runTurn(sessionRef, prompt, message) {
   slot.busy = true;
   try {
     await message.channel.sendTyping();
-    const run = await slot.agent.send(prompt);
+    const sendPrompt = harness.hint
+      ? `${prompt}\n\n---\nEnabled kits:\n${harness.hint}`
+      : prompt;
+    const run = await slot.agent.send(sendPrompt);
     let acc = "";
     let lastEdit = 0;
     let statusMsg = await message.reply({
@@ -153,16 +174,29 @@ async function runTurn(sessionRef, prompt, message) {
       // stream is optional; wait() is the source of truth
     }
     const result = await run.wait();
-    const finalText =
+    const rawText =
       result.status === "finished"
         ? (result.result || acc || "(no text)")
         : `run ${result.status}${result.error?.message ? `: ${result.error.message}` : ""}`;
+    const extracted = extractFiles(rawText);
+    const finalText =
+      extracted.text || (extracted.files.length ? "（已生成图片）" : "(empty)");
     const parts = chunkText(finalText);
     await statusMsg.edit(parts[0]).catch(async () => {
       await message.channel.send(parts[0]);
     });
     for (const extra of parts.slice(1)) {
       await message.channel.send(extra);
+    }
+    for (const file of extracted.files) {
+      const abs = isAbsolute(file) ? file : join(CWD, file);
+      try {
+        await access(abs);
+        await message.channel.send({ files: [abs] });
+      } catch (err) {
+        console.error("attach_failed", abs, err?.message || err);
+        await message.channel.send(`attach failed: ${abs}`).catch(() => {});
+      }
     }
   } catch (err) {
     const msg =
@@ -204,7 +238,7 @@ const client = new Client({
 client.on("error", (err) => console.error("client_error", err));
 client.on("ready", () => {
   console.log(
-    `ready ${client.user.tag} cwd=${CWD} model=${MODEL.id} allow=${[...ALLOW].join(",")}`,
+    `ready ${client.user.tag} cwd=${CWD} model=${MODEL.id} allow=${[...ALLOW].join(",")} kits=${harness.kitIds.join(",") || "-"}`,
   );
 });
 
@@ -224,6 +258,16 @@ client.on("messageCreate", async (message) => {
 });
 
 await loadSessions();
+try {
+  harness = await loadHarness({
+    root: HARNESS_ROOT,
+    profile: HARNESS_PROFILE,
+    agentCwd: CWD,
+  });
+} catch (err) {
+  console.error("harness_load_failed", err?.message || err);
+  harness = { dirs: [], mcpServers: {}, kitIds: [], hint: "" };
+}
 await client.login(TOKEN);
 
 const shutdown = async () => {
