@@ -17,6 +17,7 @@ import {
 } from "./harness.mjs";
 
 const vault = join(dirname(fileURLToPath(import.meta.url)), "..", "dan-harness-vault");
+const kitRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "kit-image-generate");
 
 test("parseIndex reads thin index", async () => {
   const kits = parseIndex(await readFile(join(vault, "index.yaml"), "utf8"));
@@ -61,7 +62,7 @@ test("kitHint does not embed a file marker", () => {
 
 test("image-generate MCP speaks NDJSON", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "img-mcp-"));
-  const server = join(vault, "kits/image.generate/servers/generate.mjs");
+  const server = join(kitRoot, "servers/generate.mjs");
   const child = spawn(process.execPath, [server], {
     env: { ...process.env, AGENT_CWD: cwd, IMAGE_GEN_STUB: "1" },
     stdio: ["pipe", "pipe", "pipe"],
