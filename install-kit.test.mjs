@@ -1,0 +1,32 @@
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { test } from "node:test";
+import { parseDeskIndex } from "./harness.mjs";
+import { installKit } from "./install-kit.mjs";
+
+test("installKit clones into desk harness and records the index", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "kit-src-"));
+  const src = join(parent, "src");
+  const desk = join(parent, "desk");
+  await mkdir(join(src, "skills"), { recursive: true });
+  await writeFile(join(src, "plugin.json"), "{\"name\":\"demo.kit\"}\n");
+  await writeFile(join(src, "mcp.json"), "{\"mcpServers\":{}}\n");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileP = promisify(execFile);
+  await execFileP("git", ["init", "-b", "main"], { cwd: src });
+  await execFileP("git", ["add", "."], { cwd: src });
+  await execFileP("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], { cwd: src });
+  const rec = await installKit({ agentCwd: desk, gitUrl: src, id: "demo.kit" });
+  assert.equal(rec.id, "demo.kit");
+  assert.equal(rec.path, "kits/demo.kit");
+  assert.equal(rec.active, true);
+  const plugin = await readFile(join(desk, ".harness", "kits", "demo.kit", "plugin.json"), "utf8");
+  assert.match(plugin, /demo\.kit/);
+  const kits = parseDeskIndex(await readFile(join(desk, ".harness", "index.yaml"), "utf8"));
+  assert.equal(kits.length, 1);
+  assert.equal(kits[0].id, "demo.kit");
+  await rm(parent, { recursive: true, force: true });
+});

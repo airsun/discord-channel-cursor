@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "ping": "node ping.mjs",
-    "channel": "node channel.mjs"
+    "channel": "node channel.mjs",
+    "install-kit": "node install-kit.mjs"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.30",

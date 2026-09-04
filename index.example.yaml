@@ -1,0 +1,6 @@
+kits:
+  - id: image.generate
+    path: kits/image.generate
+    git: git@github.com:airsun/kit-image-generate.git
+    ref: v0.1.0
+    active: true
