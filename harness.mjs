@@ -1,37 +1,42 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 
-export function parseIndex(text) {
+export function parseDeskIndex(text) {
   const kits = [];
   let cur = null;
-  for (const raw of text.split("\n")) {
+  for (const raw of String(text || "").split("\n")) {
     const line = raw.replace(/\s+#.*$/, "");
     const id = line.match(/^\s+-\s+id:\s+(\S+)/);
-    const path = line.match(/^\s+path:\s+(\S+)/);
     if (id) {
-      cur = { id: id[1], path: "" };
+      cur = { id: id[1], path: "", git: "", ref: "", active: true };
       kits.push(cur);
-    } else if (path && cur) {
-      cur.path = path[1];
-    }
-  }
-  return kits.filter((k) => k.id && k.path);
-}
-
-export function parseEnabled(text) {
-  const ids = [];
-  let inEnabled = false;
-  for (const raw of text.split("\n")) {
-    if (/^enabled:\s*$/.test(raw)) {
-      inEnabled = true;
       continue;
     }
-    if (!inEnabled) continue;
-    const item = raw.match(/^\s+-\s+(\S+)/);
-    if (item) ids.push(item[1]);
-    else if (raw.trim() && !/^\s/.test(raw)) inEnabled = false;
+    if (!cur) continue;
+    const path = line.match(/^\s+path:\s+(\S+)/);
+    const git = line.match(/^\s+git:\s+(\S+)/);
+    const ref = line.match(/^\s+ref:\s+(\S+)/);
+    const active = line.match(/^\s+active:\s+(true|false)/);
+    if (path) cur.path = path[1];
+    else if (git) cur.git = git[1];
+    else if (ref) cur.ref = ref[1];
+    else if (active) cur.active = active[1] === "true";
   }
-  return ids;
+  return kits
+    .filter((k) => k.id)
+    .map((k) => ({ ...k, path: k.path || `kits/${k.id}` }));
+}
+
+export function serializeDeskIndex(kits) {
+  const lines = ["kits:"];
+  for (const k of kits) {
+    lines.push(`  - id: ${k.id}`);
+    lines.push(`    path: ${k.path || `kits/${k.id}`}`);
+    if (k.git) lines.push(`    git: ${k.git}`);
+    if (k.ref) lines.push(`    ref: ${k.ref}`);
+    lines.push(`    active: ${k.active === false ? "false" : "true"}`);
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 export function isAttachablePath(p) {
@@ -74,27 +79,30 @@ export function kitHint(plugin) {
 }
 
 /**
- * @param {{ root: string, profile: string }} cfg
+ * @param {{ agentCwd: string }} cfg
  */
 export async function loadHarness(cfg) {
-  const root = cfg.root;
-  const profile = cfg.profile;
-  if (!root || !profile) {
+  if (!cfg.agentCwd) {
     return { dirs: [], mcpServers: {}, kitIds: [], hint: "" };
   }
 
-  const index = parseIndex(await readFile(join(root, "index.yaml"), "utf8"));
-  const enabled = new Set(
-    parseEnabled(await readFile(join(root, "profiles", `${profile}.yaml`), "utf8")),
-  );
+  let indexText;
+  try {
+    indexText = await readFile(join(cfg.agentCwd, ".harness", "index.yaml"), "utf8");
+  } catch (err) {
+    if (err?.code === "ENOENT") {
+      return { dirs: [], mcpServers: {}, kitIds: [], hint: "" };
+    }
+    throw err;
+  }
+  const index = parseDeskIndex(indexText).filter((k) => k.active);
   const dirs = [];
   const mcpServers = {};
   const hints = [];
   const kitIds = [];
 
   for (const entry of index) {
-    if (!enabled.has(entry.id)) continue;
-    const kitRoot = resolve(root, entry.path);
+    const kitRoot = resolve(cfg.agentCwd, ".harness", entry.path);
     kitIds.push(entry.id);
     dirs.push(kitRoot);
     let plugin = { name: entry.id };

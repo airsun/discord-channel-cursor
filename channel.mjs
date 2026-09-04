@@ -41,8 +41,6 @@ const MODEL_RETRY = {
   ],
 };
 const CWD = process.env.AGENT_CWD || "/home/airsun/Works";
-const HARNESS_ROOT = process.env.HARNESS_ROOT || "";
-const HARNESS_PROFILE = process.env.HARNESS_PROFILE || "";
 const API_KEY = process.env.CURSOR_API_KEY;
 const TOKEN = process.env.DISCORD_BOT_TOKEN;
 const ALLOW = new Set(
@@ -299,8 +297,6 @@ client.on("messageCreate", async (message) => {
 await loadSessions();
 try {
   harness = await loadHarness({
-    root: HARNESS_ROOT,
-    profile: HARNESS_PROFILE,
     agentCwd: CWD,
   });
 } catch (err) {
