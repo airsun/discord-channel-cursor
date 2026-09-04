@@ -68,6 +68,22 @@ export function isResourceExhausted(result) {
   );
 }
 
+export function isAgentMissing(err) {
+  const name = String(err?.name || err?.constructor?.name || "");
+  const msg = String(err?.message || err || "");
+  return name === "AgentNotFoundError" || /agent[- ].*not found/i.test(msg);
+}
+
+export async function resolveOrCreateAgent(prevId, { resume, create }) {
+  if (!prevId) return create();
+  try {
+    return await resume(prevId);
+  } catch (err) {
+    if (!isAgentMissing(err)) throw err;
+    return create();
+  }
+}
+
 export function resolvePluginRoot(value, kitRoot) {
   return String(value || "").replaceAll("${PLUGIN_ROOT}", kitRoot);
 }

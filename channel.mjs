@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractFiles, isResourceExhausted, loadHarness } from "./harness.mjs";
+import { extractFiles, isResourceExhausted, loadHarness, resolveOrCreateAgent } from "./harness.mjs";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { ProxyAgent, setGlobalDispatcher } from "undici";
 import WebSocket from "ws";
@@ -147,9 +147,13 @@ async function openAgent(sessionRef, { fresh = false, model = MODEL } = {}) {
 
   const prevId = fresh ? null : sessions[sessionRef];
   const opts = agentOpts(model);
-  const agent = prevId
-    ? await Agent.resume(prevId, opts)
-    : await Agent.create(opts);
+  const agent = await resolveOrCreateAgent(prevId, {
+    resume: (id) => Agent.resume(id, opts),
+    create: () => {
+      if (prevId) console.error("resume_missing, create", prevId);
+      return Agent.create(opts);
+    },
+  });
   sessions[sessionRef] = agent.agentId;
   await saveSessions();
   const slot = { agent, busy: false, queue: [] };

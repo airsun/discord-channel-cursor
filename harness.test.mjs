@@ -7,10 +7,12 @@ import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import {
   extractFiles,
+  isAgentMissing,
   isResourceExhausted,
   kitHint,
   loadHarness,
   parseDeskIndex,
+  resolveOrCreateAgent,
   resolvePluginRoot,
 } from "./harness.mjs";
 
@@ -52,6 +54,39 @@ test("isResourceExhausted", () => {
     true,
   );
   assert.equal(isResourceExhausted({ status: "finished" }), false);
+});
+
+test("isAgentMissing", () => {
+  const err = new Error("Agent agent-e83718e7-d160-45f3-b853-1ca26aacfaa8 not found");
+  err.name = "AgentNotFoundError";
+  assert.equal(isAgentMissing(err), true);
+  assert.equal(isAgentMissing(new Error("network down")), false);
+});
+
+test("resolveOrCreateAgent falls back when resume misses", async () => {
+  const created = { agentId: "agent-new" };
+  const agent = await resolveOrCreateAgent("agent-dead", {
+    resume: async () => {
+      const err = new Error("Agent agent-dead not found");
+      err.name = "AgentNotFoundError";
+      throw err;
+    },
+    create: async () => created,
+  });
+  assert.equal(agent, created);
+});
+
+test("resolveOrCreateAgent rethrows other resume errors", async () => {
+  await assert.rejects(
+    () =>
+      resolveOrCreateAgent("agent-dead", {
+        resume: async () => {
+          throw new Error("network down");
+        },
+        create: async () => ({ agentId: "nope" }),
+      }),
+    /network down/,
+  );
 });
 
 test("kitHint does not embed a file marker", () => {
