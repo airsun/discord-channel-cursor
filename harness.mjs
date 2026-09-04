@@ -72,20 +72,27 @@ function uniquePaths(paths) {
 }
 
 const BARE_IMAGE_PATH =
-  /`?(\/(?:[^\s<>"'`\[\]]+\/)+[^\s<>"'`\[\]]+\.(?:png|jpe?g|gif|webp|bmp))`?/gi;
+  /(?:```[\w-]*\s*)?(?:\d+:\d+:)?`?(\/(?:[^\s<>"'`\[\]]+\/)+[^\s<>"'`\[\]]+\.(?:png|jpe?g|gif|webp|bmp))`?(?:\s*```)?/gi;
+
+export function cleanReplyText(text) {
+  return String(text || "")
+    .replace(/^[ \t]*\d+:\d+:[ \t]*$/gm, "")
+    .replace(/^[ \t]*```[\w-]*[ \t]*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
 export function extractBareImagePaths(text) {
   const files = [];
-  const cleaned = String(text || "")
-    .replace(BARE_IMAGE_PATH, (raw, p) => {
+  const cleaned = cleanReplyText(
+    String(text || "").replace(BARE_IMAGE_PATH, (raw, p) => {
       if (isAttachablePath(p)) {
         files.push(p);
         return "";
       }
       return raw;
-    })
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    }),
+  );
   return { text: cleaned, files };
 }
 
@@ -130,7 +137,7 @@ export function collectTurnFiles(text, toolResults = [], extraPaths = []) {
   const bare = extractBareImagePaths(marked.text);
   const fromTools = toolResults.flatMap((r) => pathsFromToolResult(r));
   return {
-    text: bare.text,
+    text: cleanReplyText(bare.text),
     files: uniquePaths([...fromTools, ...marked.files, ...bare.files, ...extraPaths]),
   };
 }

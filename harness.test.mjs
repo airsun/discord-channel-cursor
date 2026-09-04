@@ -84,6 +84,21 @@ test("collectTurnFiles strips a bare image path from assistant text", () => {
   assert.deepEqual(got.files, ["/home/home-harness/home-ws/.out/images/img-1.png"]);
 });
 
+test("collectTurnFiles strips citation leftover before an image path", () => {
+  const got = collectTurnFiles(
+    "1:1:/home/home-harness/home-ws/.out/images/img-1.png",
+    [],
+  );
+  assert.equal(got.text, "");
+  assert.deepEqual(got.files, ["/home/home-harness/home-ws/.out/images/img-1.png"]);
+});
+
+test("collectTurnFiles strips leftover 1:1: after removing a path", () => {
+  const got = collectTurnFiles("画好了\n1:1:/tmp/a.png\n", []);
+  assert.equal(got.text, "画好了");
+  assert.deepEqual(got.files, ["/tmp/a.png"]);
+});
+
 test("pathsFromToolResult reads nested SDK wrappers", () => {
   assert.deepEqual(
     pathsFromToolResult({
