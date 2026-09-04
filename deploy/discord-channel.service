@@ -6,14 +6,14 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-WorkingDirectory=%h/agent-ws
-ExecStart=%h/agent-ws/start.sh
+WorkingDirectory=%h/discord-channel-cursor
+ExecStart=%h/discord-channel-cursor/start.sh
 Restart=always
 RestartSec=5
 TimeoutStopSec=20
 KillSignal=SIGTERM
-StandardOutput=append:%h/agent-ws/channel.log
-StandardError=append:%h/agent-ws/channel.log
+StandardOutput=append:%h/discord-channel-cursor/channel.log
+StandardError=append:%h/discord-channel-cursor/channel.log
 SyslogIdentifier=discord-channel
 
 [Install]

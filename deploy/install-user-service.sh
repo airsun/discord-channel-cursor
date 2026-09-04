@@ -2,7 +2,7 @@
 # Install systemd --user unit + linger + cron watchdog. No secrets in the unit.
 set -euo pipefail
 
-ROOT="${CHANNEL_HOME:-$HOME/agent-ws}"
+ROOT="${CHANNEL_HOME:-$HOME/discord-channel-cursor}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 UNIT_SRC="$HERE/discord-channel.service"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"

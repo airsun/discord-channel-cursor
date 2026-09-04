@@ -1,19 +1,19 @@
-# discord-ws · Startup + Handoff
+# discord-channel-cursor · Startup + Handoff
 
 日期：2026-09-02  
-仓库：`git@github.com:airsun/discord-ws.git`  
+仓库：`git@github.com:airsun/discord-channel-cursor.git`
 给谁：接手实现 Channel 的 Agent / 人。读完这份即可动手，不必回原会话。
 
 ---
 
 ## 0. 一句话
 
-本仓是 **Channel 原件**。31 上正在跑的「蛋特工 26」是这份原件落地前的 **spike 副本**。脑是 Cursor SDK local，不是本仓。
+本仓是 **Channel 原件**。31 的历史 **old spike** 快照见 §6；本任务不切换 31。脑是 Cursor SDK local，不是本仓。
 
 ```
 你 ↔ Discord「蛋特工 26」
         ↓
-31  ~/agent-ws/channel.mjs     ← 现网（无 git，spike）
+31  ~/discord-channel-cursor/channel.mjs  ← Channel 目标
         ↓
 Cursor Agent local · grok-4.6 high + fast
         ↓
@@ -24,18 +24,18 @@ Cursor Agent local · grok-4.6 high + fast
 
 ---
 
-## 1. 现网 vs 本仓
+## 1. 31 old spike vs 本仓
 
 | | 现网（正在聊） | 本仓（要写的） |
 |---|---|---|
 | 是什么 | 进程 | git 工程 |
-| 代码 | `/home/airsun/agent-ws`（无 git） | 本仓库 |
+| 代码 | old spike（见 §6） | 本仓库 |
 | Discord | `蛋特工 26#7432`（id `1544487815247831120`） | 同一只；token 走 env |
 | 脑 | `@cursor/sdk` local | 不变 |
-| 书桌 | `/home/airsun/discord-ws` | **不装**。仓名碰巧也叫 discord-ws |
+| 书桌 | `/home/airsun/discord-ws` | **不装**。这是历史书桌路径，不是本仓 |
 | 会话 | `sessions.json`：频道 `1544490847754789007` → `agent-7b228c98-8ec5-40aa-a345-706513ad24a4` | 实现时保持同格式，迁过去可续 |
 
-本仓做完之前，这里的改动**不会**进正在聊的那一轮。替换时：31 clone 本仓 → 用现成 env 启 `start.sh` → 迁 `sessions.json` → 停 `~/agent-ws` 那个进程。
+本仓做完之前，这里的改动**不会**进正在聊的那一轮。替换时：31 clone 本仓到 `~/discord-channel-cursor` → 用现成 env 启 `start.sh` → 迁 `sessions.json` → 停 old spike。
 
 ---
 
@@ -75,7 +75,7 @@ Cursor Agent local · grok-4.6 high + fast
 ```bash
 # 不要再裸 nohup。保活：systemd --user + linger + cron 兜底
 # 本仓模板：deploy/discord-channel.service
-# 31 安装：CHANNEL_HOME=/home/airsun/agent-ws ./deploy/install-user-service.sh
+# 31 安装：CHANNEL_HOME=/home/airsun/discord-channel-cursor ./deploy/install-user-service.sh
 systemctl --user status discord-channel.service
 ```
 
@@ -95,11 +95,11 @@ systemctl --user status discord-channel.service
 
 ## 4. Handoff（本仓下一刀）
 
-把 `~/agent-ws` 的 spike **收编**成本仓，使 31 `git clone` + 现成 env 能替换手写进程。
+把 31 old spike **收编**成本仓，使 31 `git clone` + 现成 env 能替换手写进程。
 
 ### 要落地
 
-1. `package.json`：`name` `discord-ws`，`type` `module`；deps `@cursor/sdk`、`discord.js` ^14、`https-proxy-agent`。scripts：`start`、`ping`。
+1. `package.json`：`name` `discord-channel-cursor`，`type` `module`；deps `@cursor/sdk`、`discord.js` ^14、`https-proxy-agent`。scripts：`start`、`ping`。
 2. `inject-ws-proxy.mjs`：在加载 discord.js **之前** hook `ws` 包（见 §5）。
 3. `channel.mjs`：§3 行为 + `sessions.json`（gitignore）映射 `agentId`，重启 `Agent.resume`。
 4. `start.sh`：grep+eval `CURSOR_API_KEY|DISCORD_BOT_TOKEN|DISCORD_ALLOW_USER_IDS|AGENT_CWD|HTTPS_PROXY|HTTP_PROXY|ALL_PROXY`；`nvm use 22`；默认代理 `http://127.0.0.1:7890`；`exec node --import ./inject-ws-proxy.mjs channel.mjs`。cwd 以 `/Users/` 开头则退出。
@@ -108,7 +108,7 @@ systemctl --user status discord-channel.service
 7. `deploy/discord-channel.service`：systemd user 模板（已落地；31 用 linger + cron 兜底保活）。
 8. README 中文：31 怎么跑、双档案、Channel vs cwd、代理、MESSAGE CONTENT、禁止密钥入库。
 
-参考实现在 31：`/home/airsun/agent-ws/{channel.mjs,inject-ws-proxy.mjs,start.sh,ping.mjs,package.json}`。可 SSH 抄行为，不要抄密钥。
+参考实现是 31 old spike（见 §6）。可 SSH 抄行为，不要抄密钥。
 
 ### 不要做
 
@@ -133,11 +133,11 @@ systemctl --user status discord-channel.service
 - `~/.bashrc` 非交互读不全，`start.sh` 必须 grep+eval。
 - local 的 `listArtifacts()` 空、`downloadArtifact()` 抛错。产物只在 `AGENT_CWD` 磁盘。
 - Interaction：3 秒 ACK、token 15 分钟。斜杠/按钮只能做控制面，不能开长 Agent turn。本轮不做。
-- 仓名 `discord-ws` 与 31 书桌目录同名。说话时写全路径，避免指错。
+- Channel 仓名是 `discord-channel-cursor`；31 历史书桌目录仍叫 `discord-ws`。说话时写全路径，避免指错。
 
 ---
 
-## 6. 现网快照（2026-09-02 21:07 +08）
+## 6. 31 old spike 快照（2026-09-02 21:07 +08）
 
 - 进程：`~/agent-ws` 上 `node --import ./inject-ws-proxy.mjs channel.mjs`（当时 pid 480298）
 - ready：`蛋特工 26#7432 cwd=/home/airsun/discord-ws model=grok-4.6 allow=967287061033926676`

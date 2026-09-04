@@ -8,7 +8,7 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR}/bus" ]; th
   export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
 fi
 
-ROOT="${CHANNEL_HOME:-$HOME/agent-ws}"
+ROOT="${CHANNEL_HOME:-$HOME/discord-channel-cursor}"
 PATTERN='inject-ws-proxy.mjs'
 
 if pgrep -u "$uid" -f "$PATTERN" >/dev/null 2>&1; then
