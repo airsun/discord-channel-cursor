@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
@@ -13,9 +13,25 @@ export async function installKit({ agentCwd, gitUrl, id, ref = "" }) {
   const harnessDir = join(agentCwd, ".harness");
   const dest = join(harnessDir, "kits", id);
   await mkdir(join(harnessDir, "kits"), { recursive: true });
-  await execFileP("git", ["clone", "--", gitUrl, dest]);
-  if (ref) {
-    await execFileP("git", ["-C", dest, "checkout", "--detach", ref]);
+  let installed = true;
+  try {
+    await access(dest);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    installed = false;
+  }
+  if (installed) {
+    const fetchArgs = ["-C", dest, "fetch", "--tags", "--prune", "origin"];
+    if (ref) fetchArgs.push(ref);
+    await execFileP("git", fetchArgs);
+    if (ref) {
+      await execFileP("git", ["-C", dest, "checkout", "--detach", "FETCH_HEAD"]);
+    }
+  } else {
+    await execFileP("git", ["clone", "--", gitUrl, dest]);
+    if (ref) {
+      await execFileP("git", ["-C", dest, "checkout", "--detach", ref]);
+    }
   }
   const indexPath = join(harnessDir, "index.yaml");
   let kits = [];

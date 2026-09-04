@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
@@ -60,7 +60,14 @@ test("kitHint does not embed a file marker", () => {
   assert.doesNotMatch(h, /\[\[file:/);
 });
 
-test("image-generate MCP speaks NDJSON", async () => {
+test("image-generate MCP speaks NDJSON", async (t) => {
+  try {
+    await access(kitRoot);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    t.skip("kit-image-generate sibling is not installed");
+    return;
+  }
   const cwd = await mkdtemp(join(tmpdir(), "img-mcp-"));
   const server = join(kitRoot, "servers/generate.mjs");
   const child = spawn(process.execPath, [server], {
