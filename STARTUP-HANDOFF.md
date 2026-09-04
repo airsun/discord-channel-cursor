@@ -70,15 +70,16 @@ Cursor Agent local · grok-4.6 high + fast
 - `DISCORD_ALLOW_USER_IDS`（现 1 个：`967287061033926676`）
 - `AGENT_CWD=/home/airsun/discord-ws`
 
-启动（现网）：
+启动（现网，2026-09-04 起）：
 
 ```bash
-cd /home/airsun/agent-ws
-# start.sh 用 grep+eval 抽上面那些 export，nvm use 22
-# NODE_USE_ENV_PROXY=1
-# exec node --import ./inject-ws-proxy.mjs channel.mjs
-nohup ./start.sh >> channel.log 2>&1 &
+# 不要再裸 nohup。保活：systemd --user + linger + cron 兜底
+# 本仓模板：deploy/discord-channel.service
+# 31 安装：CHANNEL_HOME=/home/airsun/agent-ws ./deploy/install-user-service.sh
+systemctl --user status discord-channel.service
 ```
+
+`start.sh` 仍用 grep+eval 抽上面那些 export，`nvm use 22`，`exec node --import ./inject-ws-proxy.mjs channel.mjs`。
 
 行为（已验证）：
 
@@ -104,7 +105,7 @@ nohup ./start.sh >> channel.log 2>&1 &
 4. `start.sh`：grep+eval `CURSOR_API_KEY|DISCORD_BOT_TOKEN|DISCORD_ALLOW_USER_IDS|AGENT_CWD|HTTPS_PROXY|HTTP_PROXY|ALL_PROXY`；`nvm use 22`；默认代理 `http://127.0.0.1:7890`；`exec node --import ./inject-ws-proxy.mjs channel.mjs`。cwd 以 `/Users/` 开头则退出。
 5. `ping.mjs`：local Agent 对 `AGENT_CWD` 发 `Reply with exactly: pong`。
 6. `profiles/home.env.example`、`profiles/work.env.example`：只有变量名和注释。
-7. `deploy/discord-channel.service`：systemd user 模板。
+7. `deploy/discord-channel.service`：systemd user 模板（已落地；31 用 linger + cron 兜底保活）。
 8. README 中文：31 怎么跑、双档案、Channel vs cwd、代理、MESSAGE CONTENT、禁止密钥入库。
 
 参考实现在 31：`/home/airsun/agent-ws/{channel.mjs,inject-ws-proxy.mjs,start.sh,ping.mjs,package.json}`。可 SSH 抄行为，不要抄密钥。
@@ -147,5 +148,5 @@ nohup ./start.sh >> channel.log 2>&1 &
 核对现网（不打印密钥）：
 
 ```bash
-ssh airsun@192.168.14.31 'pgrep -af channel.mjs; grep ready ~/agent-ws/channel.log | tail -1; cat ~/agent-ws/sessions.json'
+ssh airsun@192.168.14.31 'systemctl --user is-active discord-channel.service; pgrep -af inject-ws-proxy.mjs; grep ready ~/agent-ws/channel.log | tail -1; loginctl show-user airsun -p Linger; cat ~/agent-ws/sessions.json'
 ```
