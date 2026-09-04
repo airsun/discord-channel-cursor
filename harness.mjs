@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 
 export function parseDeskIndex(text) {
@@ -71,33 +71,90 @@ function uniquePaths(paths) {
   return out;
 }
 
+const BARE_IMAGE_PATH =
+  /`?(\/(?:[^\s<>"'`\[\]]+\/)+[^\s<>"'`\[\]]+\.(?:png|jpe?g|gif|webp|bmp))`?/gi;
+
+export function extractBareImagePaths(text) {
+  const files = [];
+  const cleaned = String(text || "")
+    .replace(BARE_IMAGE_PATH, (raw, p) => {
+      if (isAttachablePath(p)) {
+        files.push(p);
+        return "";
+      }
+      return raw;
+    })
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { text: cleaned, files };
+}
+
 function takeAttachablePath(value) {
   const text = String(value || "").trim();
   if (isAttachablePath(text)) return [text];
   const firstLine = text.split(/\r?\n/, 1)[0].trim();
   if (firstLine !== text && isAttachablePath(firstLine)) return [firstLine];
-  return extractFiles(text).files;
+  return uniquePaths([...extractFiles(text).files, ...extractBareImagePaths(text).files]);
 }
 
 /** Collect attachable paths from a completed tool_call result (MCP text or bare path). */
-export function pathsFromToolResult(result) {
-  if (result == null) return [];
-  if (typeof result === "string") return takeAttachablePath(result);
+export function pathsFromToolResult(result, depth = 0) {
+  if (result == null || depth > 4) return [];
+  if (typeof result === "string") {
+    const trimmed = result.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        return pathsFromToolResult(JSON.parse(trimmed), depth + 1);
+      } catch {
+        return takeAttachablePath(result);
+      }
+    }
+    return takeAttachablePath(result);
+  }
   if (Array.isArray(result)) {
-    return uniquePaths(result.flatMap((item) => pathsFromToolResult(item)));
+    return uniquePaths(result.flatMap((item) => pathsFromToolResult(item, depth + 1)));
   }
   if (typeof result !== "object") return [];
   const files = [];
   if (typeof result.text === "string") files.push(...takeAttachablePath(result.text));
-  if (Array.isArray(result.content)) files.push(...pathsFromToolResult(result.content));
+  if (typeof result.content === "string") files.push(...takeAttachablePath(result.content));
+  if (Array.isArray(result.content)) files.push(...pathsFromToolResult(result.content, depth + 1));
+  if (result.result != null) files.push(...pathsFromToolResult(result.result, depth + 1));
+  if (result.success != null) files.push(...pathsFromToolResult(result.success, depth + 1));
   return uniquePaths(files);
 }
 
-/** Merge tool-returned paths with [[file:]] markers. Tool paths come first. */
-export function collectTurnFiles(text, toolResults = []) {
+/** Merge tool-returned paths with [[file:]] markers and bare image paths. Tool paths come first. */
+export function collectTurnFiles(text, toolResults = [], extraPaths = []) {
   const marked = extractFiles(text);
+  const bare = extractBareImagePaths(marked.text);
   const fromTools = toolResults.flatMap((r) => pathsFromToolResult(r));
-  return { text: marked.text, files: uniquePaths([...fromTools, ...marked.files]) };
+  return {
+    text: bare.text,
+    files: uniquePaths([...fromTools, ...marked.files, ...bare.files, ...extraPaths]),
+  };
+}
+
+export async function listNewDeskImages(agentCwd, sinceMs) {
+  if (!agentCwd) return [];
+  const dir = join(agentCwd, ".out", "images");
+  let names;
+  try {
+    names = await readdir(dir);
+  } catch {
+    return [];
+  }
+  const out = [];
+  const floor = Number(sinceMs) - 2000;
+  for (const name of names) {
+    const abs = join(dir, name);
+    if (!isAttachablePath(abs)) continue;
+    try {
+      const st = await stat(abs);
+      if (st.mtimeMs >= floor) out.push(abs);
+    } catch {}
+  }
+  return out.sort();
 }
 
 export function isResourceExhausted(result) {

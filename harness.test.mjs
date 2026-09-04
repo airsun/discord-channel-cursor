@@ -11,6 +11,7 @@ import {
   isAgentMissing,
   isResourceExhausted,
   kitHint,
+  listNewDeskImages,
   loadHarness,
   parseDeskIndex,
   pathsFromToolResult,
@@ -60,8 +61,7 @@ test("pathsFromToolResult reads a bare path string", () => {
   assert.deepEqual(pathsFromToolResult("  /tmp/cat.png\n"), ["/tmp/cat.png"]);
 });
 
-test("pathsFromToolResult ignores prose and placeholders", () => {
-  assert.deepEqual(pathsFromToolResult({ content: [{ type: "text", text: "saved near /tmp/a.png" }] }), []);
+test("pathsFromToolResult ignores placeholders and unrelated fields", () => {
   assert.deepEqual(pathsFromToolResult("/绝对路径.png"), []);
   assert.deepEqual(pathsFromToolResult({ stdout: "see /tmp/docs.png later" }), []);
 });
@@ -73,6 +73,36 @@ test("collectTurnFiles prefers tool paths and still strips markers", () => {
   ]);
   assert.equal(got.text, "一只猫");
   assert.deepEqual(got.files, ["/tmp/tool.png", "/tmp/a.png"]);
+});
+
+test("collectTurnFiles strips a bare image path from assistant text", () => {
+  const got = collectTurnFiles(
+    "画好了\n/home/home-harness/home-ws/.out/images/img-1.png\n",
+    [],
+  );
+  assert.equal(got.text, "画好了");
+  assert.deepEqual(got.files, ["/home/home-harness/home-ws/.out/images/img-1.png"]);
+});
+
+test("pathsFromToolResult reads nested SDK wrappers", () => {
+  assert.deepEqual(
+    pathsFromToolResult({
+      result: { content: [{ type: "text", text: "/tmp/nested.png" }] },
+    }),
+    ["/tmp/nested.png"],
+  );
+  assert.deepEqual(pathsFromToolResult({ content: "/tmp/string-content.png" }), ["/tmp/string-content.png"]);
+});
+
+test("listNewDeskImages returns images written this turn", async () => {
+  const desk = await mkdtemp(join(tmpdir(), "desk-img-"));
+  const dir = join(desk, ".out", "images");
+  await mkdir(dir, { recursive: true });
+  const fresh = join(dir, "img-new.png");
+  await writeFile(fresh, "x");
+  const got = await listNewDeskImages(desk, Date.now());
+  await rm(desk, { recursive: true, force: true });
+  assert.deepEqual(got, [fresh]);
 });
 
 test("isResourceExhausted", () => {

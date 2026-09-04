@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { collectTurnFiles, isResourceExhausted, loadHarness, resolveOrCreateAgent } from "./harness.mjs";
+import { collectTurnFiles, isResourceExhausted, listNewDeskImages, loadHarness, resolveOrCreateAgent } from "./harness.mjs";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { ProxyAgent, setGlobalDispatcher } from "undici";
 import WebSocket from "ws";
@@ -203,6 +203,7 @@ async function runTurn(sessionRef, prompt, message) {
     return;
   }
   slot.busy = true;
+  const started = Date.now();
   try {
     await message.channel.sendTyping();
     const sendPrompt = harness.hint
@@ -225,7 +226,18 @@ async function runTurn(sessionRef, prompt, message) {
       result.status === "finished"
         ? (result.text || "(no text)")
         : `run ${result.status}${result.error?.message ? `: ${result.error.message}` : ""}`;
-    const extracted = collectTurnFiles(rawText, result.toolResults);
+    const deskImages = await listNewDeskImages(CWD, started);
+    const extracted = collectTurnFiles(rawText, result.toolResults, deskImages);
+    if (extracted.files.length) {
+      console.error("attach_files", extracted.files.join(","));
+    } else {
+      console.error(
+        "attach_none",
+        `tools=${result.toolResults?.length || 0}`,
+        `desk=${deskImages.length}`,
+        rawText.slice(0, 180).replace(/\s+/g, " "),
+      );
+    }
     const finalText =
       extracted.text || (extracted.files.length ? "（已生成图片）" : "(empty)");
     const parts = chunkText(finalText);
