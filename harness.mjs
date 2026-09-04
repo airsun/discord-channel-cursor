@@ -60,6 +60,46 @@ export function extractFiles(text) {
   return { text: cleaned, files };
 }
 
+function uniquePaths(paths) {
+  const out = [];
+  const seen = new Set();
+  for (const p of paths) {
+    if (!p || seen.has(p)) continue;
+    seen.add(p);
+    out.push(p);
+  }
+  return out;
+}
+
+function takeAttachablePath(value) {
+  const text = String(value || "").trim();
+  if (isAttachablePath(text)) return [text];
+  const firstLine = text.split(/\r?\n/, 1)[0].trim();
+  if (firstLine !== text && isAttachablePath(firstLine)) return [firstLine];
+  return extractFiles(text).files;
+}
+
+/** Collect attachable paths from a completed tool_call result (MCP text or bare path). */
+export function pathsFromToolResult(result) {
+  if (result == null) return [];
+  if (typeof result === "string") return takeAttachablePath(result);
+  if (Array.isArray(result)) {
+    return uniquePaths(result.flatMap((item) => pathsFromToolResult(item)));
+  }
+  if (typeof result !== "object") return [];
+  const files = [];
+  if (typeof result.text === "string") files.push(...takeAttachablePath(result.text));
+  if (Array.isArray(result.content)) files.push(...pathsFromToolResult(result.content));
+  return uniquePaths(files);
+}
+
+/** Merge tool-returned paths with [[file:]] markers. Tool paths come first. */
+export function collectTurnFiles(text, toolResults = []) {
+  const marked = extractFiles(text);
+  const fromTools = toolResults.flatMap((r) => pathsFromToolResult(r));
+  return { text: marked.text, files: uniquePaths([...fromTools, ...marked.files]) };
+}
+
 export function isResourceExhausted(result) {
   const msg = String(result?.error?.message || result?.result || "");
   return (

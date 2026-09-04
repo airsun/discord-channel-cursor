@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractFiles, isResourceExhausted, loadHarness, resolveOrCreateAgent } from "./harness.mjs";
+import { collectTurnFiles, isResourceExhausted, loadHarness, resolveOrCreateAgent } from "./harness.mjs";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { ProxyAgent, setGlobalDispatcher } from "undici";
 import WebSocket from "ws";
@@ -165,8 +165,12 @@ async function streamTurn(agent, sendPrompt, message, statusMsg) {
   const run = await agent.send(sendPrompt);
   let acc = "";
   let lastEdit = 0;
+  const toolResults = [];
   try {
     for await (const event of run.stream()) {
+      if (event.type === "tool_call" && event.status === "completed") {
+        toolResults.push(event.result);
+      }
       if (event.type !== "assistant") continue;
       for (const block of event.message?.content ?? []) {
         if (block.type === "text" && block.text) acc += block.text;
@@ -187,6 +191,7 @@ async function streamTurn(agent, sendPrompt, message, statusMsg) {
     status: result.status,
     error: result.error,
     text: result.status === "finished" ? result.result || acc || "" : "",
+    toolResults,
   };
 }
 
@@ -220,7 +225,7 @@ async function runTurn(sessionRef, prompt, message) {
       result.status === "finished"
         ? (result.text || "(no text)")
         : `run ${result.status}${result.error?.message ? `: ${result.error.message}` : ""}`;
-    const extracted = extractFiles(rawText);
+    const extracted = collectTurnFiles(rawText, result.toolResults);
     const finalText =
       extracted.text || (extracted.files.length ? "（已生成图片）" : "(empty)");
     const parts = chunkText(finalText);

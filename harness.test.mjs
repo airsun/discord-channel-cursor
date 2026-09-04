@@ -6,12 +6,14 @@ import { test } from "node:test";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import {
+  collectTurnFiles,
   extractFiles,
   isAgentMissing,
   isResourceExhausted,
   kitHint,
   loadHarness,
   parseDeskIndex,
+  pathsFromToolResult,
   resolveOrCreateAgent,
   resolvePluginRoot,
 } from "./harness.mjs";
@@ -43,6 +45,34 @@ test("extractFiles ignores placeholder paths", () => {
   );
   assert.deepEqual(got.files, []);
   assert.match(got.text, /交出 PNG/);
+});
+
+test("pathsFromToolResult reads MCP generate_image text", () => {
+  assert.deepEqual(
+    pathsFromToolResult({
+      content: [{ type: "text", text: "/home/home-harness/home-ws/.out/images/img-1.png" }],
+    }),
+    ["/home/home-harness/home-ws/.out/images/img-1.png"],
+  );
+});
+
+test("pathsFromToolResult reads a bare path string", () => {
+  assert.deepEqual(pathsFromToolResult("  /tmp/cat.png\n"), ["/tmp/cat.png"]);
+});
+
+test("pathsFromToolResult ignores prose and placeholders", () => {
+  assert.deepEqual(pathsFromToolResult({ content: [{ type: "text", text: "saved near /tmp/a.png" }] }), []);
+  assert.deepEqual(pathsFromToolResult("/绝对路径.png"), []);
+  assert.deepEqual(pathsFromToolResult({ stdout: "see /tmp/docs.png later" }), []);
+});
+
+test("collectTurnFiles prefers tool paths and still strips markers", () => {
+  const got = collectTurnFiles("一只猫\n[[file:/tmp/a.png]]\n", [
+    { content: [{ type: "text", text: "/tmp/tool.png" }] },
+    "  /tmp/a.png  ",
+  ]);
+  assert.equal(got.text, "一只猫");
+  assert.deepEqual(got.files, ["/tmp/tool.png", "/tmp/a.png"]);
 });
 
 test("isResourceExhausted", () => {
