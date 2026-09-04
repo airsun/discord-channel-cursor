@@ -55,7 +55,7 @@ Cursor Agent local · grok-4.6 high + fast
 | 档案 | 建议显示名 | host | cwd 示例 | MCP |
 |---|---|---|---|---|
 | work（31 已点亮） | 蛋特工 26（已在用） | `192.168.14.31` | `/home/airsun/work-ws`（现网仍是 `/home/airsun/discord-ws`，不要第三份） | `vibe-infra/fast-mcp-gateway`，现场 `~/mcp-gateway:4444` |
-| home（未点） | 原 `homelab-claw#6004` Token 留给它 | docker-1（当前从公司网够不着） | `/home/airsun/home-ws` | `dsh-home-infra` |
+| home（161 先切） | 原 `homelab-claw#6004` Token 留给它 | `home-harness@192.168.1.161`（hostname `docker-1`，干净用户，无 sudo） | `/home/home-harness/home-ws` | `dsh-home-infra` |
 
 ---
 

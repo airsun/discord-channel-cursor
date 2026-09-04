@@ -3,8 +3,12 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { spawn } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import {
   extractFiles,
+  isResourceExhausted,
   kitHint,
   loadHarness,
   parseEnabled,
@@ -30,14 +34,78 @@ test("extractFiles strips markers", () => {
   assert.deepEqual(got.files, ["/tmp/a.png"]);
 });
 
-test("resolvePluginRoot", () => {
-  assert.equal(resolvePluginRoot("${PLUGIN_ROOT}/servers/x.mjs", "/k"), "/k/servers/x.mjs");
+test("extractFiles ignores placeholder paths", () => {
+  const got = extractFiles(
+    "用 [[file:/绝对路径]] 和 [[file:<absolute-path>]] 和 [[file:/abs/path]] 交出 PNG",
+  );
+  assert.deepEqual(got.files, []);
+  assert.match(got.text, /交出 PNG/);
 });
 
-test("kitHint includes name", () => {
+test("isResourceExhausted", () => {
+  assert.equal(
+    isResourceExhausted({
+      status: "error",
+      error: { message: "[resource_exhausted] Error" },
+    }),
+    true,
+  );
+  assert.equal(isResourceExhausted({ status: "finished" }), false);
+});
+
+test("kitHint does not embed a file marker", () => {
   const h = kitHint({ name: "image.generate", description: "Generate a PNG." });
   assert.match(h, /image\.generate/);
-  assert.match(h, /\[\[file:/);
+  assert.doesNotMatch(h, /\[\[file:/);
+});
+
+test("image-generate MCP speaks NDJSON", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "img-mcp-"));
+  const server = join(vault, "kits/image.generate/servers/generate.mjs");
+  const child = spawn(process.execPath, [server], {
+    env: { ...process.env, AGENT_CWD: cwd, IMAGE_GEN_STUB: "1" },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const lines = [];
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("mcp handshake timeout")), 4000);
+    child.stdout.setEncoding("utf8");
+    let buf = "";
+    child.stdout.on("data", (chunk) => {
+      buf += chunk;
+      let idx;
+      while ((idx = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (line) lines.push(JSON.parse(line));
+        if (lines.length >= 2) {
+          clearTimeout(timer);
+          resolve();
+        }
+      }
+    });
+    child.stderr.on("data", () => {});
+    child.on("error", reject);
+    child.stdin.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "t", version: "0" } },
+      }) + "\n",
+    );
+    child.stdin.write(
+      JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }) + "\n",
+    );
+  });
+  child.kill("SIGTERM");
+  await rm(cwd, { recursive: true, force: true });
+  assert.equal(lines[0].result.serverInfo.name, "image-generate");
+  assert.equal(lines[1].result.tools[0].name, "generate_image");
+});
+
+test("resolvePluginRoot", () => {
+  assert.equal(resolvePluginRoot("${PLUGIN_ROOT}/servers/x.mjs", "/k"), "/k/servers/x.mjs");
 });
 
 test("loadHarness enables image.generate", async () => {

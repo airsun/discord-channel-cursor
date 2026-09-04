@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractFiles, loadHarness } from "./harness.mjs";
+import { extractFiles, isResourceExhausted, loadHarness } from "./harness.mjs";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { ProxyAgent, setGlobalDispatcher } from "undici";
 import WebSocket from "ws";
@@ -30,6 +30,13 @@ const MODEL = {
   id: "grok-4.6",
   params: [
     { id: "effort", value: "high" },
+    { id: "fast", value: "true" },
+  ],
+};
+const MODEL_RETRY = {
+  id: "grok-4.6",
+  params: [
+    { id: "effort", value: "medium" },
     { id: "fast", value: "true" },
   ],
 };
@@ -108,14 +115,10 @@ async function replyChunks(message, text) {
   }
 }
 
-async function openAgent(sessionRef) {
-  const existing = live.get(sessionRef);
-  if (existing) return existing;
-
-  const prevId = sessions[sessionRef];
-  const opts = {
+function agentOpts(model = MODEL) {
+  return {
     apiKey: API_KEY,
-    model: MODEL,
+    model,
     local: {
       cwd: CWD,
       ...(harness.dirs.length
@@ -126,6 +129,26 @@ async function openAgent(sessionRef) {
       ? { mcpServers: harness.mcpServers }
       : {}),
   };
+}
+
+async function openAgent(sessionRef, { fresh = false, model = MODEL } = {}) {
+  if (!fresh) {
+    const existing = live.get(sessionRef);
+    if (existing) return existing;
+  } else {
+    const old = live.get(sessionRef);
+    if (old) {
+      try {
+        await old.agent.close?.();
+      } catch {}
+      live.delete(sessionRef);
+    }
+    delete sessions[sessionRef];
+    await saveSessions();
+  }
+
+  const prevId = fresh ? null : sessions[sessionRef];
+  const opts = agentOpts(model);
   const agent = prevId
     ? await Agent.resume(prevId, opts)
     : await Agent.create(opts);
@@ -136,8 +159,37 @@ async function openAgent(sessionRef) {
   return slot;
 }
 
+async function streamTurn(agent, sendPrompt, message, statusMsg) {
+  const run = await agent.send(sendPrompt);
+  let acc = "";
+  let lastEdit = 0;
+  try {
+    for await (const event of run.stream()) {
+      if (event.type !== "assistant") continue;
+      for (const block of event.message?.content ?? []) {
+        if (block.type === "text" && block.text) acc += block.text;
+      }
+      const now = Date.now();
+      if (acc && now - lastEdit > 1200) {
+        lastEdit = now;
+        const preview = acc.length > 1900 ? acc.slice(0, 1900) + "…" : acc;
+        await statusMsg.edit(preview).catch(() => {});
+        await message.channel.sendTyping().catch(() => {});
+      }
+    }
+  } catch {
+    // stream is optional; wait() is the source of truth
+  }
+  const result = await run.wait();
+  return {
+    status: result.status,
+    error: result.error,
+    text: result.status === "finished" ? result.result || acc || "" : "",
+  };
+}
+
 async function runTurn(sessionRef, prompt, message) {
-  const slot = await openAgent(sessionRef);
+  let slot = await openAgent(sessionRef);
   if (slot.busy) {
     slot.queue.push(prompt);
     await message.react("⏳").catch(() => {});
@@ -149,34 +201,22 @@ async function runTurn(sessionRef, prompt, message) {
     const sendPrompt = harness.hint
       ? `${prompt}\n\n---\nEnabled kits:\n${harness.hint}`
       : prompt;
-    const run = await slot.agent.send(sendPrompt);
-    let acc = "";
-    let lastEdit = 0;
     let statusMsg = await message.reply({
       content: "…",
       allowedMentions: { repliedUser: false },
     });
-    try {
-      for await (const event of run.stream()) {
-        if (event.type !== "assistant") continue;
-        for (const block of event.message?.content ?? []) {
-          if (block.type === "text" && block.text) acc += block.text;
-        }
-        const now = Date.now();
-        if (acc && now - lastEdit > 1200) {
-          lastEdit = now;
-          const preview = acc.length > 1900 ? acc.slice(0, 1900) + "…" : acc;
-          await statusMsg.edit(preview).catch(() => {});
-          await message.channel.sendTyping().catch(() => {});
-        }
-      }
-    } catch {
-      // stream is optional; wait() is the source of truth
+    let result = await streamTurn(slot.agent, sendPrompt, message, statusMsg);
+    if (isResourceExhausted(result)) {
+      console.error("resource_exhausted, retry with fresh agent + lighter model");
+      const queued = slot.queue;
+      slot = await openAgent(sessionRef, { fresh: true, model: MODEL_RETRY });
+      slot.busy = true;
+      slot.queue = queued;
+      result = await streamTurn(slot.agent, sendPrompt, message, statusMsg);
     }
-    const result = await run.wait();
     const rawText =
       result.status === "finished"
-        ? (result.result || acc || "(no text)")
+        ? (result.text || "(no text)")
         : `run ${result.status}${result.error?.message ? `: ${result.error.message}` : ""}`;
     const extracted = extractFiles(rawText);
     const finalText =
@@ -194,8 +234,7 @@ async function runTurn(sessionRef, prompt, message) {
         await access(abs);
         await message.channel.send({ files: [abs] });
       } catch (err) {
-        console.error("attach_failed", abs, err?.message || err);
-        await message.channel.send(`attach failed: ${abs}`).catch(() => {});
+        console.error("attach_skipped", abs, err?.message || err);
       }
     }
   } catch (err) {

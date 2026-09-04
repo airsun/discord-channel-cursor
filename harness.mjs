@@ -34,16 +34,33 @@ export function parseEnabled(text) {
   return ids;
 }
 
+export function isAttachablePath(p) {
+  const path = String(p || "").trim();
+  if (!path.startsWith("/")) return false;
+  if (/[<>]|绝对路径|abs\/path|absolute-path/i.test(path)) return false;
+  if (!/\.[A-Za-z0-9]{2,8}$/.test(path)) return false;
+  return true;
+}
+
 export function extractFiles(text) {
   const files = [];
   const cleaned = String(text || "")
     .replace(/\[\[file:([^\]]+)\]\]/g, (_, p) => {
-      files.push(p.trim());
+      const path = p.trim();
+      if (isAttachablePath(path)) files.push(path);
       return "";
     })
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   return { text: cleaned, files };
+}
+
+export function isResourceExhausted(result) {
+  const msg = String(result?.error?.message || result?.result || "");
+  return (
+    /resource_exhausted/i.test(msg) ||
+    (result?.status === "error" && /resource_exhausted/i.test(JSON.stringify(result)))
+  );
 }
 
 export function resolvePluginRoot(value, kitRoot) {
@@ -53,7 +70,7 @@ export function resolvePluginRoot(value, kitRoot) {
 export function kitHint(plugin) {
   const name = plugin?.name || "kit";
   const desc = plugin?.description || "";
-  return `${name}: ${desc} If this request matches, use the kit MCP tools. Image paths must be marked [[file:/abs/path]].`;
+  return `${name}: ${desc} If this request matches, call the kit MCP tools (for image.generate that is generate_image) and put the tool's returned real path in a file marker. Never invent or translate the path.`;
 }
 
 /**

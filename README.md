@@ -16,7 +16,9 @@ Cursor Agent 的 Discord Channel（薄入口）。不是智能体，不是干活
 
 ## 31 怎么跑
 
-机器：`airsun@192.168.14.31`（`officestation-31`）。Node 用 nvm 22。出网走本机 mihomo `http://127.0.0.1:7890`。
+机器：
+- work：`airsun@192.168.14.31`（`officestation-31`）。Node 用 nvm 22。出网走本机 mihomo `http://127.0.0.1:7890`。
+- home：`home-harness@192.168.1.161`（`docker-1`，干净用户）。Node 用 nvm LTS。书桌目标 `~/home-ws`，Channel 目标 `~/discord-channel`。
 
 环境变量在 `~/.bashrc`（`CURSOR_API_KEY`、`DISCORD_BOT_TOKEN`、`DISCORD_ALLOW_USER_IDS`、`AGENT_CWD`）。`start.sh` 用 grep+eval 抽取，不要 `source ~/.bashrc`。
 
