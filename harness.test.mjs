@@ -6,9 +6,11 @@ import { test } from "node:test";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import {
+  cancelActiveRuns,
   collectTurnFiles,
   extractFiles,
   inferHarnessSite,
+  isActiveRunConflict,
   isAgentMissing,
   isResourceExhausted,
   kitHint,
@@ -139,6 +141,30 @@ test("isAgentMissing", () => {
   err.name = "AgentNotFoundError";
   assert.equal(isAgentMissing(err), true);
   assert.equal(isAgentMissing(new Error("network down")), false);
+});
+
+test("isActiveRunConflict", () => {
+  const err = new Error("Agent agent-31db61ce-8ec0-4784-a4c5-476656ba8e06 already has active run");
+  err.name = "AgentBusyError";
+  assert.equal(isActiveRunConflict(err), true);
+  assert.equal(isActiveRunConflict(new Error("network down")), false);
+});
+
+test("cancelActiveRuns cancels only running runs", async () => {
+  const cancelled = [];
+  const n = await cancelActiveRuns("agent-x", {
+    listRuns: async () => ({
+      items: [
+        { id: "run-done", status: "finished", supports: () => false },
+        { id: "run-live", status: "running", supports: () => true },
+      ],
+    }),
+    cancel: async (run) => {
+      cancelled.push(run.id);
+    },
+  });
+  assert.equal(n, 1);
+  assert.deepEqual(cancelled, ["run-live"]);
 });
 
 test("resolveOrCreateAgent falls back when resume misses", async () => {

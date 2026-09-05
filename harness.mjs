@@ -178,6 +178,26 @@ export function isAgentMissing(err) {
   return name === "AgentNotFoundError" || /agent[- ].*not found/i.test(msg);
 }
 
+export function isActiveRunConflict(err) {
+  const name = String(err?.name || err?.constructor?.name || "");
+  const msg = String(err?.message || err || "");
+  return name === "AgentBusyError" || /already has active run/i.test(msg);
+}
+
+export async function cancelActiveRuns(agentId, { listRuns, cancel } = {}) {
+  if (!agentId || !listRuns || !cancel) return 0;
+  const res = await listRuns(agentId);
+  const items = res?.items || [];
+  let n = 0;
+  for (const run of items) {
+    if (run?.status !== "running") continue;
+    if (run.supports && !run.supports("cancel")) continue;
+    await cancel(run);
+    n += 1;
+  }
+  return n;
+}
+
 export async function resolveOrCreateAgent(prevId, { resume, create }) {
   if (!prevId) return create();
   try {

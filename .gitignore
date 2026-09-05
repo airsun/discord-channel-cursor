@@ -3,6 +3,7 @@ node_modules/
 .env.*
 !.env.example
 sessions.json
+.restart-when-idle
 *.log
 .DS_Store
 /ensure-channel.sh
