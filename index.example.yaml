@@ -4,3 +4,7 @@ kits:
     git: git@github.com:airsun/kit-image-generate.git
     ref: v0.1.0
     active: true
+  - id: kit.kit-create-tool
+    path: kits/kit.kit-create-tool
+    git: git@github.com:airsun/kit-kit-create-tool.git
+    active: true

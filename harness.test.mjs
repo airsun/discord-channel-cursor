@@ -8,13 +8,16 @@ import { tmpdir } from "node:os";
 import {
   collectTurnFiles,
   extractFiles,
+  inferHarnessSite,
   isAgentMissing,
   isResourceExhausted,
   kitHint,
   listNewDeskImages,
   loadHarness,
+  markSlotsAfterHarnessReload,
   parseDeskIndex,
   pathsFromToolResult,
+  readIndexFingerprint,
   resolveOrCreateAgent,
   resolvePluginRoot,
 } from "./harness.mjs";
@@ -256,5 +259,32 @@ test("loadHarness reads desk index and skips inactive", async () => {
   assert.deepEqual(loaded.kitIds, ["image.generate"]);
   assert.equal(loaded.dirs[0], kitDir);
   assert.equal(loaded.mcpServers["image.generate.image-generate"].env.AGENT_CWD, desk);
+  assert.equal(loaded.mcpServers["image.generate.image-generate"].env.HARNESS_SITE, "home");
   await rm(desk, { recursive: true, force: true });
+});
+
+test("inferHarnessSite from desk path", () => {
+  assert.equal(inferHarnessSite("/home/home-harness/home-ws"), "home");
+  assert.equal(inferHarnessSite("/home/office-harness/work-ws"), "work");
+});
+
+test("readIndexFingerprint changes when index changes", async () => {
+  const desk = await mkdtemp(join(tmpdir(), "desk-fp-"));
+  assert.equal(await readIndexFingerprint(desk), "");
+  await mkdir(join(desk, ".harness"), { recursive: true });
+  await writeFile(join(desk, ".harness", "index.yaml"), "kits:\n");
+  const a = await readIndexFingerprint(desk);
+  assert.match(a, /kits:/);
+  await writeFile(join(desk, ".harness", "index.yaml"), "kits:\n  - id: x\n");
+  const b = await readIndexFingerprint(desk);
+  assert.notEqual(a, b);
+  await rm(desk, { recursive: true, force: true });
+});
+
+test("markSlotsAfterHarnessReload keeps busy agents and flags stale", () => {
+  const busy = { busy: true, stale: false };
+  const idle = { busy: false, stale: false };
+  const now = markSlotsAfterHarnessReload([busy, idle]);
+  assert.equal(busy.stale, true);
+  assert.deepEqual(now, [idle]);
 });

@@ -2,7 +2,16 @@ import { access } from "node:fs/promises";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { collectTurnFiles, isResourceExhausted, listNewDeskImages, loadHarness, resolveOrCreateAgent } from "./harness.mjs";
+import {
+  collectTurnFiles,
+  isAgentMissing,
+  isResourceExhausted,
+  listNewDeskImages,
+  loadHarness,
+  markSlotsAfterHarnessReload,
+  readIndexFingerprint,
+  resolveOrCreateAgent,
+} from "./harness.mjs";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { ProxyAgent, setGlobalDispatcher } from "undici";
 import WebSocket from "ws";
@@ -67,7 +76,7 @@ if (CWD.startsWith("/Users/")) {
   process.exit(1);
 }
 
-/** @type {Map<string, { agent: import("@cursor/sdk").SDKAgent, busy: boolean, queue: string[] }>} */
+/** @type {Map<string, { agent: import("@cursor/sdk").SDKAgent, busy: boolean, stale: boolean, queue: string[] }>} */
 const live = new Map();
 /** @type {Record<string, string>} */
 let sessions = {};
@@ -129,10 +138,62 @@ function agentOpts(model = MODEL) {
   };
 }
 
+async function refreshLiveAgent(sessionRef, slot) {
+  if (!slot || slot.busy) return slot;
+  const prevId = sessions[sessionRef];
+  const opts = agentOpts();
+  const agent = await resolveOrCreateAgent(prevId, {
+    resume: (id) => Agent.resume(id, opts),
+    create: () => Agent.create(opts),
+  });
+  if (slot.agent !== agent) {
+    try {
+      await slot.agent.close?.();
+    } catch {}
+  }
+  slot.agent = agent;
+  slot.stale = false;
+  sessions[sessionRef] = agent.agentId;
+  await saveSessions();
+  return slot;
+}
+
+async function reloadHarnessIfIndexChanged(beforeFp) {
+  const afterFp = await readIndexFingerprint(CWD);
+  if (afterFp === beforeFp) return false;
+  try {
+    harness = await loadHarness({ agentCwd: CWD });
+  } catch (err) {
+    console.error("harness_reload_failed", err?.message || err);
+    return false;
+  }
+  console.error("harness_reloaded", `kits=${harness.kitIds.join(",") || "-"}`);
+  const refreshNow = markSlotsAfterHarnessReload([...live.values()]);
+  for (const [ref, slot] of live) {
+    if (!refreshNow.includes(slot)) continue;
+    try {
+      await refreshLiveAgent(ref, slot);
+    } catch (err) {
+      if (!isAgentMissing(err)) console.error("harness_resume_failed", ref, err?.message || err);
+      slot.stale = true;
+    }
+  }
+  return true;
+}
+
 async function openAgent(sessionRef, { fresh = false, model = MODEL } = {}) {
   if (!fresh) {
     const existing = live.get(sessionRef);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.stale && !existing.busy) {
+        try {
+          await refreshLiveAgent(sessionRef, existing);
+        } catch (err) {
+          console.error("stale_resume_failed", err?.message || err);
+        }
+      }
+      return existing;
+    }
   } else {
     const old = live.get(sessionRef);
     if (old) {
@@ -156,7 +217,7 @@ async function openAgent(sessionRef, { fresh = false, model = MODEL } = {}) {
   });
   sessions[sessionRef] = agent.agentId;
   await saveSessions();
-  const slot = { agent, busy: false, queue: [] };
+  const slot = { agent, busy: false, stale: false, queue: [] };
   live.set(sessionRef, slot);
   return slot;
 }
@@ -204,6 +265,7 @@ async function runTurn(sessionRef, prompt, message) {
   }
   slot.busy = true;
   const started = Date.now();
+  const indexFp = await readIndexFingerprint(CWD);
   try {
     await message.channel.sendTyping();
     const sendPrompt = harness.hint
@@ -264,6 +326,9 @@ async function runTurn(sessionRef, prompt, message) {
     await replyChunks(message, msg);
   } finally {
     slot.busy = false;
+    await reloadHarnessIfIndexChanged(indexFp).catch((err) => {
+      console.error("harness_reload_err", err?.message || err);
+    });
     const next = slot.queue.shift();
     if (next) {
       await runTurn(sessionRef, next, message);

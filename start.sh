@@ -9,7 +9,14 @@ set +u
 . "$NVM_DIR/nvm.sh"
 nvm use --lts >/dev/null
 set -u
+export CHANNEL_HOME="$(pwd)"
 export AGENT_CWD="${AGENT_CWD:-$HOME/home-ws}"
+if [ -z "${HARNESS_SITE:-}" ]; then
+  case "$AGENT_CWD" in
+    */work-ws) export HARNESS_SITE=work ;;
+    *) export HARNESS_SITE=home ;;
+  esac
+fi
 if [ -z "${HTTPS_PROXY:-}" ] && [ -z "${HTTP_PROXY:-}" ]; then
   if (echo >/dev/tcp/127.0.0.1/7890) >/dev/null 2>&1; then
     export HTTPS_PROXY=http://127.0.0.1:7890

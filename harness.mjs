@@ -188,6 +188,36 @@ export async function resolveOrCreateAgent(prevId, { resume, create }) {
   }
 }
 
+export function inferHarnessSite(agentCwd, fallback = process.env.HARNESS_SITE || "home") {
+  const cwd = String(agentCwd || "").replace(/\/+$/, "");
+  if (cwd.endsWith("/work-ws") || cwd.endsWith("work-ws")) return "work";
+  if (cwd.endsWith("/home-ws") || cwd.endsWith("home-ws")) return "home";
+  return fallback === "work" ? "work" : "home";
+}
+
+export async function readIndexFingerprint(agentCwd) {
+  if (!agentCwd) return "";
+  const p = join(agentCwd, ".harness", "index.yaml");
+  try {
+    const text = await readFile(p, "utf8");
+    const st = await stat(p);
+    return `${st.mtimeMs}:${text}`;
+  } catch (err) {
+    if (err?.code === "ENOENT") return "";
+    throw err;
+  }
+}
+
+/** Busy slots are marked stale; idle slots are returned for immediate resume. */
+export function markSlotsAfterHarnessReload(slots) {
+  const refreshNow = [];
+  for (const slot of slots) {
+    if (slot.busy) slot.stale = true;
+    else refreshNow.push(slot);
+  }
+  return refreshNow;
+}
+
 export function resolvePluginRoot(value, kitRoot) {
   return String(value || "").replaceAll("${PLUGIN_ROOT}", kitRoot);
 }
@@ -250,6 +280,8 @@ export async function loadHarness(cfg) {
       server.env = {
         ...(server.env || {}),
         AGENT_CWD: cfg.agentCwd || process.env.AGENT_CWD || "",
+        CHANNEL_HOME: process.env.CHANNEL_HOME || "",
+        HARNESS_SITE: inferHarnessSite(cfg.agentCwd),
         HTTPS_PROXY: process.env.HTTPS_PROXY || "",
         HTTP_PROXY: process.env.HTTP_PROXY || "",
         NODE_USE_ENV_PROXY: process.env.NODE_USE_ENV_PROXY || "",
