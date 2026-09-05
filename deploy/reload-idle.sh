@@ -9,13 +9,14 @@ if [ "${1:-}" = "--force" ]; then
   FORCE=1
 fi
 
-touch "$FLAG"
-echo "armed $FLAG"
-
 if [ "$FORCE" -eq 1 ]; then
+  rm -f "$FLAG"
   systemctl --user restart discord-channel.service
   echo "forced restart"
   exit 0
 fi
+
+touch "$FLAG"
+echo "armed $FLAG"
 
 echo "waiting for Channel to exit when idle (systemd Restart=always will bring it back)"
