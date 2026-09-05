@@ -26,6 +26,13 @@ export async function installKit({ agentCwd, gitUrl, id, ref = "" }) {
     await execFileP("git", fetchArgs);
     if (ref) {
       await execFileP("git", ["-C", dest, "checkout", "--detach", "FETCH_HEAD"]);
+    } else {
+      let remoteHead = "origin/main";
+      try {
+        const { stdout } = await execFileP("git", ["-C", dest, "rev-parse", "--abbrev-ref", "origin/HEAD"]);
+        if (String(stdout || "").trim()) remoteHead = String(stdout).trim();
+      } catch {}
+      await execFileP("git", ["-C", dest, "merge", "--ff-only", remoteHead]);
     }
   } else {
     await execFileP("git", ["clone", "--", gitUrl, dest]);
