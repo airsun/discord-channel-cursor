@@ -1,10 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  MSG_QUOTA_EXHAUSTED,
   settleOrCancelRun,
   shouldIdleRestart,
   waitWithTimeout,
 } from "./run-lifecycle.mjs";
+
+// 这条断言看着单薄，但守的是 spec 的硬要求：额度提示不得转发 provider 原文。
+// 谁把原始文案粘进来当文案，这里就红。
+test("MSG_QUOTA_EXHAUSTED is a human sentence, not provider text", () => {
+  assert.equal(typeof MSG_QUOTA_EXHAUSTED, "string");
+  assert.ok(MSG_QUOTA_EXHAUSTED.length > 0);
+  for (const leak of ["out of usage", "Increase limits", "Switch to Auto", "admin"]) {
+    assert.ok(
+      !MSG_QUOTA_EXHAUSTED.includes(leak),
+      `额度提示不应包含 provider 原文片段: ${leak}`,
+    );
+  }
+});
 
 test("waitWithTimeout rejects after the limit", async () => {
   await assert.rejects(

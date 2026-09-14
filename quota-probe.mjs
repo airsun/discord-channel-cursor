@@ -100,7 +100,7 @@ if (proxy) {
 }
 
 const { Agent, Cursor } = await import("@cursor/sdk");
-const { isResourceExhausted } = await import("./harness.mjs");
+const { isQuotaExhausted, isResourceExhausted } = await import("./harness.mjs");
 
 // ── 结果分类 ────────────────────────────────────────────────────────────────
 function classify(text) {
@@ -185,9 +185,16 @@ for (const [i, c] of targets.entries()) {
       detail = `status=${result?.status} ${text.slice(0, 140) || JSON.stringify(result).slice(0, 140)}`;
     }
 
-    // 关键：把真实结果喂给 channel 用的那个判定函数，看它认不认。
-    const exhausted = isResourceExhausted(result);
-    rows.push({ c, verdict, detail, ms: Date.now() - started, exhausted, thrown: false });
+    // 关键：把真实结果喂给 channel 用的那两个判定函数，看它们各自认不认。
+    rows.push({
+      c,
+      verdict,
+      detail,
+      ms: Date.now() - started,
+      quota: isQuotaExhausted(result),
+      resource: isResourceExhausted(result),
+      thrown: false,
+    });
   } catch (err) {
     const text = String(err?.message || err);
     verdict = classify(text);
@@ -195,7 +202,15 @@ for (const [i, c] of targets.entries()) {
     const ctor = err?.constructor?.name;
     const named = ctor && ctor.length > 2 && ctor !== "Error" ? `${ctor}: ` : "";
     detail = `${named}${text.slice(0, 140)}`;
-    rows.push({ c, verdict, detail, ms: Date.now() - started, exhausted: false, thrown: true });
+    rows.push({
+      c,
+      verdict,
+      detail,
+      ms: Date.now() - started,
+      quota: isQuotaExhausted(err),
+      resource: isResourceExhausted(err),
+      thrown: true,
+    });
   } finally {
     try {
       await agent?.close?.();
@@ -207,7 +222,7 @@ for (const [i, c] of targets.entries()) {
   const row = rows[rows.length - 1];
   console.log(`     ${MARK[row.verdict]} ${TAG[row.verdict]}  (${(row.ms / 1000).toFixed(1)}s)`);
   console.log(`     ${row.detail}`);
-  console.log(`     isResourceExhausted() → ${row.exhausted}`);
+  console.log(`     isQuotaExhausted() → ${row.quota}   isResourceExhausted() → ${row.resource}`);
   console.log();
 }
 
@@ -216,17 +231,17 @@ console.log("=== 汇总 ===");
 for (const r of rows) {
   console.log(
     `${r.c.model.id.padEnd(22)} ${MARK[r.verdict]} ${TAG[r.verdict].padEnd(6)} ` +
-      `isResourceExhausted=${String(r.exhausted).padEnd(5)}`,
+      `quota=${String(r.quota).padEnd(5)} resource=${String(r.resource).padEnd(5)}`,
   );
 }
 
-const quotaRows = rows.filter((r) => r.verdict === "quota");
-const missed = quotaRows.filter((r) => !r.exhausted);
+// classify() 是探针自己的粗判，isQuotaExhausted() 是 channel 真正用的判定。
+// 两者不一致 = 真判定没覆盖到这个文案，channel 会把 provider 原文甩进 Discord。
+const missed = rows.filter((r) => r.verdict === "quota" && !r.quota);
 if (missed.length) {
   console.log();
-  console.log("⚠️  channel 的兜底不认这些额度错误 —— channel.mjs:363 那条路不会触发，");
-  console.log("    错误会直接甩进 Discord。涉及的 model：");
-  for (const r of missed) console.log(`      ${r.c.model.id}`);
+  console.log("⚠️  isQuotaExhausted() 没认下这些额度错误 —— channel 会把原文甩进 Discord：");
+  for (const r of missed) console.log(`      ${r.c.model.id}  ${r.detail.slice(0, 90)}`);
 }
 
 const autoRow = rows.find((r) => r.c.key === "auto");
@@ -235,8 +250,10 @@ if (autoRow) {
   if (autoRow.verdict === "auth") {
     console.log("⇒ auto 的结论无效：认证没过，先修 CURSOR_API_KEY 再跑一次。");
   } else if (autoRow.verdict === "ok") {
-    console.log('⇒ auto 在 SDK 路径上可用 —— channel 换 { id: "auto" } 可行。');
+    console.log('⇒ 默认模型 auto 可用 —— channel 的 MODEL 配置成立。');
   } else {
-    console.log(`⇒ auto 在 SDK 路径上不可用（${TAG[autoRow.verdict]}）—— 换 auto 这个方案不成立。`);
+    console.log(`⇒ 默认模型 auto 不可用（${TAG[autoRow.verdict]}）—— 先解决额度，或改 MODEL。`);
   }
+  // 作为回归工具：默认模型不可用时必须以非零退出码失败，否则它是哑的。
+  if (autoRow.verdict !== "ok") process.exitCode = 1;
 }

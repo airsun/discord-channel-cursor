@@ -172,6 +172,32 @@ export function isResourceExhausted(result) {
   );
 }
 
+// 额度耗尽与资源约束是两种失败，响应相反：前者重试必然再撞，后者重试有意义。
+// 所以判定分开，别把额度措辞塞进 isResourceExhausted。
+// 匹配面按 Cursor 实际返回的措辞写；只认某一个固定字面量会在 provider 改文案时静默失配。
+const QUOTA_PATTERNS = [
+  /out of usage/i,
+  /increase limits/i,
+  /usage[- ]based pricing/i,
+  /usage pricing required/i,
+];
+
+export function isQuotaExhausted(result) {
+  // 跑完的 run 里 result.result 是给用户看的正文，不参与判定 ——
+  // 否则频道里正常聊到「额度」就会被误判成额度耗尽，把回答吃掉。
+  // 兼容两种形状：run 结果对象，和异常路径直接抛出来的 Error。
+  const done = Boolean(result?.status) && result.status !== "error";
+  const msg = String(
+    result?.error?.message ||
+      (done ? "" : result?.result) ||
+      result?.message ||
+      (typeof result === "string" ? result : "") ||
+      "",
+  );
+  if (QUOTA_PATTERNS.some((re) => re.test(msg))) return true;
+  return result?.status === "error" && QUOTA_PATTERNS.some((re) => re.test(JSON.stringify(result)));
+}
+
 export function isAgentMissing(err) {
   const name = String(err?.name || err?.constructor?.name || "");
   const msg = String(err?.message || err || "");

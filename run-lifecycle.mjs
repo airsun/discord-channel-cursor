@@ -3,6 +3,7 @@ export const WAIT_SHUTDOWN_MS = 15_000;
 
 export const MSG_RUN_BUSY = "上一轮还没结束，请稍后再试";
 export const MSG_RUN_INTERRUPTED = "上一轮被中断，已接到同一会话，请再说一次或继续";
+export const MSG_QUOTA_EXHAUSTED = "Cursor 额度用完了，暂时回不了。需要加额度或换模型。";
 
 export async function waitWithTimeout(waitFn, ms) {
   let timer;

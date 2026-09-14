@@ -12,6 +12,7 @@ import {
   inferHarnessSite,
   isActiveRunConflict,
   isAgentMissing,
+  isQuotaExhausted,
   isResourceExhausted,
   kitHint,
   listNewDeskImages,
@@ -134,6 +135,42 @@ test("isResourceExhausted", () => {
     true,
   );
   assert.equal(isResourceExhausted({ status: "finished" }), false);
+});
+
+// 2026-09-14 在 31 上抓到的原文，别改写它 —— 这条用例的价值就在于它是真的。
+const REAL_QUOTA_MSG =
+  "Increase limits for faster responses You're out of usage. Switch to Auto, or ask your admin to increase your limit to continue.";
+
+test("isQuotaExhausted recognizes the real message", () => {
+  assert.equal(isQuotaExhausted({ status: "error", error: { message: REAL_QUOTA_MSG } }), true);
+  assert.equal(isQuotaExhausted({ status: "error", result: REAL_QUOTA_MSG }), true);
+  // 异常路径直接抛 Error，形状不同，判定要一样。
+  assert.equal(isQuotaExhausted(new Error(REAL_QUOTA_MSG)), true);
+  assert.equal(isQuotaExhausted({ status: "finished", result: "pong" }), false);
+});
+
+test("a finished run discussing quota is not a quota failure", () => {
+  // 频道里被问到「为什么挂了」时，回答里出现额度措辞是正常的 ——
+  // 判定若认下它，就会把这条回答替换成额度提示。
+  assert.equal(
+    isQuotaExhausted({
+      status: "finished",
+      result: `频道挂了是因为 Cursor 返回了 "${REAL_QUOTA_MSG}"`,
+    }),
+    false,
+  );
+});
+
+test("quota and resource exhaustion stay separate verdicts", () => {
+  const quota = { status: "error", error: { message: REAL_QUOTA_MSG } };
+  const resource = { status: "error", error: { message: "[resource_exhausted] Error" } };
+  const conflict = new Error("Agent agent-x already has active run");
+
+  // 额度耗尽若被 isResourceExhausted 认下，就会进重试分支 —— 重试必然再撞。
+  assert.equal(isResourceExhausted(quota), false);
+  // 反向也不能串：瞬时约束被当成额度耗尽，等于吞掉本该有的重试。
+  assert.equal(isQuotaExhausted(resource), false);
+  assert.equal(isQuotaExhausted(conflict), false);
 });
 
 test("isAgentMissing", () => {

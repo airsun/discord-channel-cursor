@@ -134,6 +134,8 @@ systemctl --user status discord-channel.service
 - local 的 `listArtifacts()` 空、`downloadArtifact()` 抛错。产物只在 `AGENT_CWD` 磁盘。
 - Interaction：3 秒 ACK、token 15 分钟。斜杠/按钮只能做控制面，不能开长 Agent turn。本轮不做。
 - Channel 仓名是 `discord-channel-cursor`；31 历史书桌目录仍叫 `discord-ws`。说话时写全路径，避免指错。
+- **额度耗尽**：症状是频道静默、`channel.log` 出现 `run error: Increase limits for faster responses You're out of usage.`。处置：先 `node quota-probe.mjs` 看哪个模型还能用（探针自行从 `~/.bashrc` 取 key），再改 `channel.mjs` 的 `MODEL`。2026-09-14 实测 31 账号上固定模型全档耗尽，只有 `auto` 可用。
+- **31 的 Cursor 账号与本机不同**：`office-harness` 账号模型清单 38 个，个人账号 227 个。别拿本机 CLI 的结论推 31。
 
 ---
 

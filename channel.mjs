@@ -5,6 +5,7 @@ import {
   collectTurnFiles,
   isActiveRunConflict,
   isAgentMissing,
+  isQuotaExhausted,
   isResourceExhausted,
   listNewDeskImages,
   loadHarness,
@@ -14,6 +15,7 @@ import {
 } from "./harness.mjs";
 import { promptWithUploads, saveInboundImages } from "./inbound.mjs";
 import {
+  MSG_QUOTA_EXHAUSTED,
   MSG_RUN_BUSY,
   WAIT_SHUTDOWN_MS,
   WAIT_STARTUP_MS,
@@ -46,20 +48,11 @@ const { Agent } = await import("@cursor/sdk");
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const SESSION_FILE = join(ROOT, "sessions.json");
 const IDLE_RESTART_FLAG = join(ROOT, ".restart-when-idle");
-const MODEL = {
-  id: "grok-4.6",
-  params: [
-    { id: "effort", value: "high" },
-    { id: "fast", value: "true" },
-  ],
-};
-const MODEL_RETRY = {
-  id: "grok-4.6",
-  params: [
-    { id: "effort", value: "medium" },
-    { id: "fast", value: "true" },
-  ],
-};
+// 2026-09-14：固定模型全档额度耗尽，auto 是唯一实测可用项。见
+// openspec/changes/channel-quota-fallback/。auto 的路由模型会在请求间变化，
+// 这是官方语义，不是缺陷 —— 别当成 bug 排查。
+// 换模型前先跑 quota-probe.mjs 确认可用性。
+const MODEL = { id: "auto" };
 const CWD = process.env.AGENT_CWD || "/home/airsun/Works";
 const API_KEY = process.env.CURSOR_API_KEY;
 const TOKEN = process.env.DISCORD_BOT_TOKEN;
@@ -361,11 +354,14 @@ async function runTurn(sessionRef, prompt, message) {
     });
     let result = await streamTurnOrReleaseBusy(slot, sessionRef, sendPrompt, message, statusMsg);
     if (isResourceExhausted(result)) {
-      console.error("resource_exhausted, retry same agent + lighter model");
+      // 瞬时资源约束：接上同一会话、用同一模型再来一次。
+      // 这里只处理可恢复的约束 —— 额度耗尽由 isQuotaExhausted 单独判定，
+      // 重试它只会再撞一次同一堵墙，交给下面的文案出口。
+      console.error("resource_exhausted, retry same agent + same model");
       const id = sessionAgentId(sessionRef);
       slot.agent = await resolveOrCreateAgent(id, {
-        resume: (prev) => Agent.resume(prev, agentOpts(MODEL_RETRY)),
-        create: () => Agent.create(agentOpts(MODEL_RETRY)),
+        resume: (prev) => Agent.resume(prev, agentOpts()),
+        create: () => Agent.create(agentOpts()),
       });
       await writeSession(sessionRef, { agentId: slot.agent.agentId, runId: null });
       result = await streamTurnOrReleaseBusy(slot, sessionRef, sendPrompt, message, statusMsg);
@@ -386,8 +382,12 @@ async function runTurn(sessionRef, prompt, message) {
         rawText.slice(0, 180).replace(/\s+/g, " "),
       );
     }
+    // 上面的 rawText 保留 provider 原文，channel.log 靠它诊断；
+    // 转发给人的只有人话。判定只对失败的 run 生效，跑完的回答不参与。
     const finalText =
-      extracted.text || (extracted.files.length ? "（已生成图片）" : "(empty)");
+      result.status !== "finished" && isQuotaExhausted(result)
+        ? MSG_QUOTA_EXHAUSTED
+        : extracted.text || (extracted.files.length ? "（已生成图片）" : "(empty)");
     const parts = chunkText(finalText);
     await statusMsg.edit(parts[0]).catch(async () => {
       await message.channel.send(parts[0]);
@@ -405,7 +405,11 @@ async function runTurn(sessionRef, prompt, message) {
       }
     }
   } catch (err) {
-    const msg = isActiveRunConflict(err) ? MSG_RUN_BUSY : String(err?.message || err);
+    const msg = isActiveRunConflict(err)
+      ? MSG_RUN_BUSY
+      : isQuotaExhausted(err)
+        ? MSG_QUOTA_EXHAUSTED
+        : String(err?.message || err);
     await replyChunks(message, msg.startsWith("startup failed:") ? MSG_RUN_BUSY : msg);
   } finally {
     slot.busy = false;
