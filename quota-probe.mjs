@@ -44,6 +44,15 @@ const CASES = [
 // ── 环境：复刻 start.sh 的取值方式 ────────────────────────────────────────────
 const BASHRC_KEYS = ["CURSOR_API_KEY", "AGENT_CWD", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"];
 
+// start.sh 用 eval，所以 `$HOME` 和 `${X:-default}` 会被展开。这里补上最小子集，
+// 否则读到的代理/路径是字面量，显示出来会误导（探测本身仍能跑，但那是碰巧）。
+function expandShellValue(value) {
+  return value
+    .replace(/\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}/g, (_, name, fallback) => process.env[name] || fallback)
+    .replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name) => process.env[name] || "")
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, name) => process.env[name] || "");
+}
+
 function fromBashrc() {
   let text;
   try {
@@ -55,7 +64,7 @@ function fromBashrc() {
   for (const key of BASHRC_KEYS) {
     // 只认 `export KEY=value`，val 可带单/双引号。不 eval —— 这里只取值。
     const m = text.match(new RegExp(`^\\s*export\\s+${key}=(['"]?)(.*?)\\1\\s*$`, "m"));
-    if (m) out[key] = m[2];
+    if (m) out[key] = expandShellValue(m[2]);
   }
   return out;
 }
