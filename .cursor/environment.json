@@ -1,0 +1,4 @@
+{
+  "name": "discord-channel-cursor",
+  "install": "npm ci"
+}
