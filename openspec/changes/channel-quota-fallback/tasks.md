@@ -36,5 +36,5 @@
 - [x] 6.3 31（`office-harness@192.168.14.31`）：`cd ~/discord-channel-cursor && git pull`
 - [x] 6.4 31：跑 `quota-probe.mjs`，确认 `auto` 仍可用且退出码为 0
 - [x] 6.5 31：确认无 busy slot 后 `systemctl --user restart discord-channel.service`
-- [ ] 6.6 在频道里发一条消息，确认回复正常、且不再出现 provider 原始文案
+- [x] 6.6 在频道里发一条消息，确认回复正常、且不再出现 provider 原始文案
 - [x] 6.7 改前先确认：若需回滚，目标是「保留 1–5 的代码改动、只把 `MODEL` 换成固定模型」，而非 revert 整个提交（见 design.md — Risks）
